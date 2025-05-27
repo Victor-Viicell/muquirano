@@ -23,37 +23,68 @@ class LoginWindow(QWidget):
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Digite seu usuário")
-        form_layout.addRow("Usuário:", self.username_input)
+        self.username_combo = QComboBox()
+        self.load_usernames() # Load usernames into combobox
+        form_layout.addRow("Selecionar Usuário:", self.username_combo)
 
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Digite sua senha")
         self.password_input.setEchoMode(QLineEdit.Password)
         form_layout.addRow("Senha:", self.password_input)
-
+        
         main_layout.addLayout(form_layout)
+
+        # Registration specific inputs (kept separate for now)
+        registration_group = QGroupBox("Novo Registro")
+        registration_form_layout = QFormLayout()
+        self.new_username_input = QLineEdit()
+        self.new_username_input.setPlaceholderText("Digite o nome para novo usuário")
+        registration_form_layout.addRow("Novo Usuário:", self.new_username_input)
+        self.new_password_input = QLineEdit()
+        self.new_password_input.setPlaceholderText("Digite a senha para novo usuário")
+        self.new_password_input.setEchoMode(QLineEdit.Password)
+        registration_form_layout.addRow("Nova Senha:", self.new_password_input)
+        self.register_button = QPushButton("Registrar Novo Usuário")
+        self.register_button.clicked.connect(self.handle_register)
+        registration_form_layout.addWidget(self.register_button)
+        registration_group.setLayout(registration_form_layout)
+
 
         button_layout = QHBoxLayout()
         self.login_button = QPushButton("Login")
         self.login_button.clicked.connect(self.handle_login)
         button_layout.addWidget(self.login_button)
 
-        self.register_button = QPushButton("Registrar")
-        self.register_button.clicked.connect(self.handle_register)
-        button_layout.addWidget(self.register_button)
+        # self.register_button = QPushButton("Registrar") # Original register button
+        # self.register_button.clicked.connect(self.handle_register)
+        # button_layout.addWidget(self.register_button)
 
         main_layout.addLayout(button_layout)
+        main_layout.addWidget(registration_group) # Add registration group to layout
         self.setLayout(main_layout)
         
-        self.username_input.setFocus()
+        self.username_combo.setFocus()
+
+    def load_usernames(self):
+        self.username_combo.clear()
+        usernames = database.get_all_usernames()
+        if usernames:
+            self.username_combo.addItems(usernames)
+        else:
+            self.username_combo.addItem("Nenhum usuário registrado")
+            self.username_combo.setEnabled(False)
+            self.login_button.setEnabled(False) # Disable login if no users
 
     def handle_login(self):
-        username = self.username_input.text().strip()
+        username = self.username_combo.currentText()
         password = self.password_input.text()
 
-        if not username or not password:
-            QMessageBox.warning(self, "Login Falhou", "Nome de usuário e senha são obrigatórios.")
+        if self.username_combo.currentIndex() == -1 or username == "Nenhum usuário registrado":
+            QMessageBox.warning(self, "Login Falhou", "Por favor, selecione um usuário válido.")
+            return
+
+        if not password:
+            QMessageBox.warning(self, "Login Falhou", "Senha é obrigatória.")
             return
 
         user = database.check_user_password(username, password)
@@ -62,12 +93,14 @@ class LoginWindow(QWidget):
             self.main_app_controller.show_main_window(user)
             self.close()
         else:
-            QMessageBox.warning(self, "Login Falhou", "Nome de usuário ou senha inválidos.")
+            QMessageBox.warning(self, "Login Falhou", "Usuário ou senha inválidos.")
             self.password_input.clear()
+            self.password_input.setFocus()
+
 
     def handle_register(self):
-        username = self.username_input.text().strip()
-        password = self.password_input.text()
+        username = self.new_username_input.text().strip()
+        password = self.new_password_input.text()
 
         if not username or not password:
             QMessageBox.warning(self, "Registro Falhou", "Nome de usuário e senha não podem estar vazios.")
@@ -79,10 +112,17 @@ class LoginWindow(QWidget):
 
         user = database.add_user(username, password)
         if user:
-            QMessageBox.information(self, "Registro Bem-sucedido", f"Usuário '{username}' registrado com sucesso! Agora você pode fazer login.")
-            self.username_input.clear()
-            self.password_input.clear()
-            self.username_input.setFocus()
+            QMessageBox.information(self, "Registro Bem-sucedido", f"Usuário '{username}' registrado com sucesso! Agora você pode selecioná-lo na lista para fazer login.")
+            self.new_username_input.clear()
+            self.new_password_input.clear()
+            self.load_usernames() # Refresh the usernames combobox
+            self.username_combo.setEnabled(True) # Ensure combo is enabled
+            self.login_button.setEnabled(True) # Ensure login button is enabled
+            # Find and set current item to the newly registered user
+            index = self.username_combo.findText(username)
+            if index >= 0:
+                 self.username_combo.setCurrentIndex(index)
+            self.password_input.setFocus()
         else:
             QMessageBox.warning(self, "Registro Falhou", "Nome de usuário já existe ou ocorreu um erro.")
 

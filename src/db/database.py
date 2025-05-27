@@ -100,6 +100,15 @@ def check_user_password(username: str, password_to_check: str) -> Optional[User]
             return None # Password mismatch
     return None # User not found
 
+def get_all_usernames() -> List[str]:
+    """Fetches all usernames from the database."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users ORDER BY name ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
 def add_transaction(
     user_id: int,
     type: TransactionType,
