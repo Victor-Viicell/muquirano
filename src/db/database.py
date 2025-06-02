@@ -1,18 +1,46 @@
+"""
+Sistema Muquirano - Módulo de Banco de Dados
+
+Este módulo gerencia todas as operações de banco de dados do sistema Muquirano,
+incluindo criação, leitura, atualização e exclusão de usuários e transações.
+Utiliza SQLite como banco de dados e bcrypt para hash de senhas.
+
+Principais funcionalidades:
+- Gerenciamento de usuários com autenticação segura
+- CRUD completo para transações financeiras
+- Suporte a transações parceladas e recorrentes
+- Validação e busca avançada de transações
+- Operações em lote para grupos de transações
+
+Tabelas do banco:
+- users: Informações de usuários e senhas hashadas
+- transactions: Transações financeiras com suporte a agrupamento
+
+Autor: Sistema Muquirano
+Data: 2024
+"""
+
 import sqlite3
 from typing import Optional, List
-import bcrypt # Added for password hashing
-import uuid # For generating unique installment group IDs
-from datetime import datetime, date # ensure date is imported
-from dateutil.relativedelta import relativedelta # For date calculations
+import bcrypt # Para hash de senhas
+import uuid # Para gerar IDs únicos de grupos de parcelas
+from datetime import datetime, date # Para manipulação de datas
+from dateutil.relativedelta import relativedelta # Para cálculos de data
 from .data_models import User, Transaction, TransactionType
 
 DB_NAME = "muquirano.db"
 
 def initialize_db():
+    """
+    Inicializa o banco de dados criando as tabelas necessárias
+    
+    Cria as tabelas 'users' e 'transactions' se elas não existirem.
+    Esta função é chamada automaticamente na inicialização da aplicação.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # Create users table
+    # Cria tabela de usuários
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,7 +49,7 @@ def initialize_db():
         )
     """)
 
-    # Create transactions table
+    # Cria tabela de transações
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,11 +61,11 @@ def initialize_db():
             installment_group_id TEXT,
             installment_number INTEGER,
             total_installments INTEGER,
-            is_recurring INTEGER DEFAULT 0,      -- SQLite uses INTEGER for BOOLEAN (0 or 1)
+            is_recurring INTEGER DEFAULT 0,      -- SQLite usa INTEGER para BOOLEAN (0 ou 1)
             recurring_group_id TEXT,
-            recurrence_frequency TEXT,         -- e.g., 'monthly', 'weekly', 'yearly'
-            occurrence_number INTEGER,         -- e.g., 1, 2, 3 for the current occurrence in the group
-            total_occurrences_in_group INTEGER,-- Total number of occurrences planned for this group at creation
+            recurrence_frequency TEXT,         -- ex: 'monthly', 'weekly', 'yearly'
+            occurrence_number INTEGER,         -- ex: 1, 2, 3 para a ocorrência atual no grupo
+            total_occurrences_in_group INTEGER,-- Número total de ocorrências planejadas para este grupo na criação
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     """)
@@ -45,10 +73,24 @@ def initialize_db():
     conn.close()
 
 def add_user(name: str, password: str) -> Optional[User]:
+    """
+    Adiciona um novo usuário ao banco de dados
+    
+    Args:
+        name (str): Nome do usuário (deve ser único)
+        password (str): Senha em texto plano (será hashada)
+    
+    Returns:
+        Optional[User]: Objeto User se criado com sucesso, None caso contrário
+        
+    Note:
+        A senha é automaticamente hashada usando bcrypt antes do armazenamento.
+        Retorna None se o nome de usuário já existir.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
-        # Hash the password
+        # Faz hash da senha
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
         
@@ -56,16 +98,28 @@ def add_user(name: str, password: str) -> Optional[User]:
         conn.commit()
         user_id = cursor.lastrowid
         if user_id is not None:
-            # Return user with plain password for immediate use if needed, though it's not stored plain
-            # For this application structure, returning the hashed password is not useful for the User object
-            return User(id=user_id, name=name, password=password) # Or consider not returning password at all
+            # Retorna usuário com senha em texto plano para uso imediato se necessário
+            # Para esta estrutura de aplicação, retornar a senha hashada não é útil para o objeto User
+            return User(id=user_id, name=name, password=password) # Ou considere não retornar senha alguma
         return None
-    except sqlite3.IntegrityError: # Username already exists
+    except sqlite3.IntegrityError: # Nome de usuário já existe
         return None
     finally:
         conn.close()
 
 def get_user(name: str) -> Optional[User]:
+    """
+    Busca um usuário pelo nome
+    
+    Args:
+        name (str): Nome do usuário a ser buscado
+    
+    Returns:
+        Optional[User]: Objeto User se encontrado, None caso contrário
+        
+    Note:
+        O campo password do objeto User retornado contém o hash da senha.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, password FROM users WHERE name = ?", (name,))
@@ -73,19 +127,29 @@ def get_user(name: str) -> Optional[User]:
     conn.close()
     if row:
         user_id, user_name, stored_hashed_password_bytes = row
-        # The User object returned here does not need the password to be the plain text one
-        # The check happens here. If successful, the UI knows.
-        # We are returning a User object that still has a password field,
-        # but for a logged-in user, its value isn't directly used for re-authentication typically.
-        # For now, let's keep it simple and not store the plain password in the User object after login.
-        # We will need to adjust handle_login in ui.py because it compares user.password == password
-        return User(id=user_id, name=user_name, password=stored_hashed_password_bytes.decode('utf-8', errors='ignore')) # Store hash as string
+        # O objeto User retornado aqui não precisa que a senha seja em texto plano
+        # A verificação acontece aqui. Se bem-sucedida, a UI sabe.
+        # Estamos retornando um objeto User que ainda tem um campo password,
+        # mas para um usuário logado, seu valor não é usado diretamente para re-autenticação tipicamente.
+        # Por ora, vamos manter simples e não armazenar a senha em texto plano no objeto User após login.
+        # Precisaremos ajustar handle_login em ui.py porque ele compara user.password == password
+        return User(id=user_id, name=user_name, password=stored_hashed_password_bytes.decode('utf-8', errors='ignore')) # Armazena hash como string
     return None
 
 def check_user_password(username: str, password_to_check: str) -> Optional[User]:
     """
-    Checks user credentials. Returns User object if valid, None otherwise.
-    This function is intended to replace the password check in LoginWindow.handle_login.
+    Verifica as credenciais do usuário e retorna o objeto User se válidas
+    
+    Args:
+        username (str): Nome do usuário
+        password_to_check (str): Senha em texto plano para verificação
+    
+    Returns:
+        Optional[User]: Objeto User se credenciais válidas, None caso contrário
+    
+    Note:
+        Esta função substitui a verificação de senha em LoginWindow.handle_login.
+        Usa bcrypt para comparação segura de senhas.
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -95,13 +159,18 @@ def check_user_password(username: str, password_to_check: str) -> Optional[User]
     if row:
         user_id, user_name, stored_hashed_password_bytes = row
         if bcrypt.checkpw(password_to_check.encode('utf-8'), stored_hashed_password_bytes):
-            return User(id=user_id, name=user_name, password='') # Don't return hash or plain password
+            return User(id=user_id, name=user_name, password='') # Não retorna hash ou senha em texto plano
         else:
-            return None # Password mismatch
-    return None # User not found
+            return None # Senha incorreta
+    return None # Usuário não encontrado
 
 def get_all_usernames() -> List[str]:
-    """Fetches all usernames from the database."""
+    """
+    Busca todos os nomes de usuário do banco de dados
+    
+    Returns:
+        List[str]: Lista de nomes de usuário ordenada alfabeticamente
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM users ORDER BY name ASC")
@@ -116,24 +185,51 @@ def add_transaction(
     date_str: str, 
     description: str,
     num_installments: int = 1,
-    is_recurring_input: bool = False, # New: if this transaction is part of a recurring series
-    recurrence_frequency_input: Optional[str] = None, # New: e.g., 'monthly', 'weekly'
-    num_occurrences_to_generate_input: int = 0 # New: How many future occurrences to auto-generate
+    is_recurring_input: bool = False, # Novo: se esta transação é parte de uma série recorrente
+    recurrence_frequency_input: Optional[str] = None, # Novo: ex: 'monthly', 'weekly'
+    num_occurrences_to_generate_input: int = 0 # Novo: Quantas ocorrências futuras gerar automaticamente
 ) -> List[Transaction]:
+    """
+    Adiciona uma ou múltiplas transações ao banco de dados
+    
+    Esta função suporta três tipos de transação:
+    1. Simples: Uma única transação
+    2. Parcelada: Múltiplas parcelas com datas consecutivas mensais
+    3. Recorrente: Múltiplas ocorrências com frequência definida
+    
+    Args:
+        user_id (int): ID do usuário proprietário
+        type (TransactionType): Tipo da transação (INCOME ou EXPENSE)
+        total_amount (float): Valor total (para parcelas) ou valor por ocorrência (para recorrentes)
+        date_str (str): Data inicial no formato YYYY-MM-DD
+        description (str): Descrição base da transação
+        num_installments (int, optional): Número de parcelas. Defaults to 1.
+        is_recurring_input (bool, optional): Se é transação recorrente. Defaults to False.
+        recurrence_frequency_input (Optional[str], optional): Frequência da recorrência. Defaults to None.
+        num_occurrences_to_generate_input (int, optional): Número de ocorrências a gerar. Defaults to 0.
+    
+    Returns:
+        List[Transaction]: Lista de transações criadas
+    
+    Note:
+        Para transações parceladas, o valor é dividido igualmente entre as parcelas.
+        Para transações recorrentes, cada ocorrência tem o valor total especificado.
+        As datas são calculadas automaticamente baseadas na frequência escolhida.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     created_transactions: List[Transaction] = []
     
-    base_start_date = datetime.strptime(date_str, "%Y-%m-%d").date() # Use .date() for date objects
+    base_start_date = datetime.strptime(date_str, "%Y-%m-%d").date() # Usa .date() para objetos date
 
-    # Determine loop iterations: 1 for simple, N for installments, M for recurring batch
-    # If it's recurring, num_installments is implicitly 1 for each generated occurrence.
-    # If it's an installment, is_recurring_input should be False for the initial call from UI for that group.
+    # Determina iterações do loop: 1 para simples, N para parcelas, M para lote recorrente
+    # Se é recorrente, num_installments é implicitamente 1 para cada ocorrência gerada.
+    # Se é parcela, is_recurring_input deve ser False para a chamada inicial da UI para esse grupo.
 
-    # For recurring transactions, we generate a batch based on num_occurrences_to_generate_input
+    # Para transações recorrentes, geramos um lote baseado em num_occurrences_to_generate_input
     if is_recurring_input and num_occurrences_to_generate_input > 0:
         current_recurring_group_id = str(uuid.uuid4())
-        amount_per_occurrence = total_amount # For recurring, total_amount is the amount for EACH occurrence
+        amount_per_occurrence = total_amount # Para recorrentes, total_amount é o valor para CADA ocorrência
         
         for occurrence_idx in range(num_occurrences_to_generate_input):
             occurrence_num = occurrence_idx + 1
@@ -144,11 +240,11 @@ def add_transaction(
                 occurrence_date = base_start_date + relativedelta(weeks=occurrence_idx)
             elif recurrence_frequency_input == 'yearly':
                 occurrence_date = base_start_date + relativedelta(years=occurrence_idx)
-            else: # Default to base_start_date if frequency is unknown or not applicable for batch generation
-                if occurrence_idx > 0: # only advance if not the first one and frequency is weird
-                    # Potentially log a warning or handle this case as an error
-                    print(f"Warning: Unknown recurrence frequency '{recurrence_frequency_input}' for batch generation of {description}")
-                    occurrence_date = base_start_date + relativedelta(months=occurrence_idx) # fallback to monthly for safety
+            else: # Padrão para base_start_date se frequência for desconhecida ou não aplicável para geração em lote
+                if occurrence_idx > 0: # apenas avança se não for a primeira e frequência for estranha
+                    # Potencialmente registra um aviso ou trata este caso como erro
+                    print(f"Aviso: Frequência de recorrência desconhecida '{recurrence_frequency_input}' para geração em lote de {description}")
+                    occurrence_date = base_start_date + relativedelta(months=occurrence_idx) # fallback para mensal por segurança
             
             occurrence_date_str = occurrence_date.strftime("%Y-%m-%d")
             occurrence_description = f"{description} (Recorrente {occurrence_num}/{num_occurrences_to_generate_input})"
@@ -168,12 +264,12 @@ def add_transaction(
                         description=occurrence_description, is_recurring=True, recurring_group_id=current_recurring_group_id,
                         recurrence_frequency=recurrence_frequency_input, occurrence_number=occurrence_num, total_occurrences_in_group=num_occurrences_to_generate_input
                     ))
-                else: print(f"Error: Failed to get lastrowid for recurring transaction: {occurrence_description}")
+                else: print(f"Erro: Falha ao obter lastrowid para transação recorrente: {occurrence_description}")
             except Exception as e:
-                print(f"Error adding recurring transaction: {occurrence_description}: {e}")
+                print(f"Erro adicionando transação recorrente: {occurrence_description}: {e}")
                 conn.close(); return []
     
-    # For installment transactions (can't be simultaneously batch-recurring from one UI call like this)
+    # Para transações parceladas (não podem ser simultaneamente lote-recorrentes de uma chamada UI como esta)
     elif num_installments > 1 and not is_recurring_input:
         current_installment_group_id = str(uuid.uuid4())
         amount_per_installment = round(total_amount / num_installments, 2)
@@ -199,12 +295,12 @@ def add_transaction(
                         description=installment_description, installment_group_id=current_installment_group_id,
                         installment_number=installment_num, total_installments=num_installments
                     ))
-                else: print(f"Error: Failed to get lastrowid for installment: {installment_description}")
+                else: print(f"Erro: Falha ao obter lastrowid para parcela: {installment_description}")
             except Exception as e:
-                print(f"Error adding installment transaction: {installment_description}: {e}")
+                print(f"Erro adicionando transação parcelada: {installment_description}: {e}")
                 conn.close(); return []
 
-    # For simple, non-installment, non-batch-recurring transactions
+    # Para transações simples, sem parcela, sem lote-recorrente
     else:
         try:
             cursor.execute(
@@ -217,9 +313,9 @@ def add_transaction(
                     id=transaction_id, user_id=user_id, type=type, amount=total_amount, date=date_str,
                     description=description
                 ))
-            else: print(f"Error: Failed to get lastrowid for simple transaction: {description}")
+            else: print(f"Erro: Falha ao obter lastrowid para transação simples: {description}")
         except Exception as e:
-            print(f"Error adding simple transaction: {description}: {e}")
+            print(f"Erro adicionando transação simples: {description}: {e}")
             conn.close(); return []
 
     conn.commit()

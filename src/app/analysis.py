@@ -1,3 +1,27 @@
+"""
+Sistema Muquirano - Módulo de Análise e Relatórios
+
+Este módulo fornece funcionalidades para análise financeira e geração de relatórios
+do sistema Muquirano. Inclui geração de gráficos, estatísticas e previsões simples
+baseadas no histórico de transações do usuário.
+
+Principais funcionalidades:
+- Conversão de dados para DataFrame pandas para análise
+- Geração de relatórios de receitas e despesas
+- Criação de gráficos (pizza e barras) usando matplotlib
+- Previsões simples baseadas em médias históricas
+- Interface gráfica para visualização de relatórios
+
+Componentes principais:
+- Funções de análise de dados financeiros
+- Geradores de gráficos matplotlib
+- Diálogos Qt para exibição de relatórios
+- Sistema de previsões baseado em histórico
+
+Autor: Sistema Muquirano
+Data: 2024
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -11,7 +35,22 @@ from src.app.utils import format_date_for_display
 def get_transactions_as_dataframe(user_id: int, 
                                   start_date: str | None = None, 
                                   end_date: str | None = None) -> pd.DataFrame:
-    """Fetches transactions and returns them as a pandas DataFrame."""
+    """
+    Busca transações do banco de dados e retorna como DataFrame pandas
+    
+    Args:
+        user_id (int): ID do usuário para buscar transações
+        start_date (str | None, optional): Data inicial no formato YYYY-MM-DD. Defaults to None.
+        end_date (str | None, optional): Data final no formato YYYY-MM-DD. Defaults to None.
+    
+    Returns:
+        pd.DataFrame: DataFrame com as transações, incluindo colunas:
+                     id, user_id, type, amount, date, description
+    
+    Note:
+        Se start_date ou end_date forem fornecidas, filtra as transações pelo período.
+        As datas são convertidas para datetime e valores para numeric automaticamente.
+    """
     transactions: List[Transaction] = database.get_transactions_by_user(user_id=user_id, sort_by='date', sort_order='ASC')
     
     if not transactions:
@@ -29,7 +68,18 @@ def get_transactions_as_dataframe(user_id: int,
     return df
 
 def generate_summary_report(df: pd.DataFrame) -> Dict[str, float]:
-    """Generates a summary report: total income, total expenses, net balance."""
+    """
+    Gera um relatório resumo das transações: total de receitas, despesas e saldo líquido
+    
+    Args:
+        df (pd.DataFrame): DataFrame com transações
+    
+    Returns:
+        Dict[str, float]: Dicionário com as chaves:
+                         - total_receita: Soma de todas as receitas
+                         - total_despesa: Soma de todas as despesas  
+                         - saldo_liquido: Diferença entre receitas e despesas
+    """
     summary = {
         "total_receita": df[df['type'] == TransactionType.INCOME.value]['amount'].sum() if not df.empty else 0.0,
         "total_despesa": df[df['type'] == TransactionType.EXPENSE.value]['amount'].sum() if not df.empty else 0.0,
@@ -38,7 +88,19 @@ def generate_summary_report(df: pd.DataFrame) -> Dict[str, float]:
     return summary
 
 def create_income_expense_pie_chart(df: pd.DataFrame) -> plt.Figure | None:
-    """Generates a pie chart of income vs. expense."""
+    """
+    Gera um gráfico de pizza mostrando a distribuição entre receitas e despesas
+    
+    Args:
+        df (pd.DataFrame): DataFrame com transações
+    
+    Returns:
+        plt.Figure | None: Figura matplotlib com o gráfico ou None se não há dados
+    
+    Note:
+        Usa cores verde para receitas e vermelho para despesas.
+        Retorna None se não houver dados suficientes para o gráfico.
+    """
     if df.empty:
         return None
     
@@ -72,7 +134,19 @@ def create_income_expense_pie_chart(df: pd.DataFrame) -> plt.Figure | None:
     return fig
 
 def create_monthly_bar_chart(df: pd.DataFrame) -> plt.Figure | None:
-    """Generates a bar chart of monthly income and expenses."""
+    """
+    Gera um gráfico de barras mostrando receitas e despesas mensais
+    
+    Args:
+        df (pd.DataFrame): DataFrame com transações
+    
+    Returns:
+        plt.Figure | None: Figura matplotlib com o gráfico ou None se não há dados
+    
+    Note:
+        Agrupa as transações por mês-ano e mostra barras lado a lado para
+        receitas (verde) e despesas (vermelho). Retorna None se não há dados.
+    """
     if df.empty:
         return None
 
@@ -116,7 +190,21 @@ def create_monthly_bar_chart(df: pd.DataFrame) -> plt.Figure | None:
     return fig
 
 def generate_simple_forecast(df_full_history: pd.DataFrame) -> Dict[str, float]:
-    """Generates a very simple forecast for next month's expenses and income."""
+    """
+    Gera uma previsão simples para receitas e despesas do próximo mês
+    
+    Args:
+        df_full_history (pd.DataFrame): DataFrame com todo o histórico de transações
+    
+    Returns:
+        Dict[str, float]: Dicionário com previsões:
+                         - proxima_receita_estimada: Estimativa de receita
+                         - proxima_despesa_estimada: Estimativa de despesa
+    
+    Note:
+        A previsão é baseada na média dos últimos 3 meses disponíveis.
+        Retorna 0.0 para ambos os valores se não há dados suficientes.
+    """
     forecast = {
         "proxima_receita_estimada": 0.0,
         "proxima_despesa_estimada": 0.0
@@ -151,26 +239,71 @@ def generate_simple_forecast(df_full_history: pd.DataFrame) -> Dict[str, float]:
     return forecast
 
 class ChartDialog(QDialog):
-    """A dialog to display a Matplotlib chart."""
+    """
+    Diálogo para exibir gráficos matplotlib
+    
+    Esta classe cria uma janela modal para mostrar gráficos gerados
+    pelas funções de análise. Gerencia automaticamente a memória
+    da figura matplotlib quando a janela é fechada.
+    
+    Attributes:
+        canvas (FigureCanvas): Canvas Qt para renderizar o matplotlib
+        layout (QVBoxLayout): Layout da janela
+    """
+    
     def __init__(self, figure: plt.Figure, parent=None):
+        """
+        Inicializa o diálogo de gráfico
+        
+        Args:
+            figure (plt.Figure): Figura matplotlib a ser exibida
+            parent: Widget pai do diálogo
+        """
         super().__init__(parent)
         self.setWindowTitle("Gráfico")
         self.layout = QVBoxLayout(self)
         self.canvas = FigureCanvas(figure)
         self.layout.addWidget(self.canvas)
         self.setMinimumSize(640, 480)
-        # Ensure the figure is closed when the dialog is closed to free memory
+        # Garante que a figura seja fechada quando o diálogo for fechado para liberar memória
         self.finished.connect(lambda: plt.close(figure))
 
 
 class ReportPredictionDialog(QDialog):
-    """Dialog to display reports and predictions with date range selection."""
+    """
+    Diálogo para exibir relatórios e previsões com seleção de intervalo de datas
+    
+    Esta classe fornece uma interface completa para geração de relatórios
+    financeiros, incluindo estatísticas, previsões e gráficos interativos.
+    
+    Funcionalidades:
+    - Seleção de período para análise
+    - Geração de relatório textual com estatísticas
+    - Botões para exibir gráficos de pizza e barras
+    - Previsões baseadas em histórico completo
+    - Validação de datas e dados
+    
+    Attributes:
+        user_id (int): ID do usuário para buscar transações
+        start_date_edit (QDateEdit): Campo para data inicial
+        end_date_edit (QDateEdit): Campo para data final
+        results_text_edit (QTextEdit): Área para exibir relatório textual
+        current_df_for_report (pd.DataFrame): DataFrame atual para gráficos
+    """
+    
     def __init__(self, user_id, parent=None):
+        """
+        Inicializa o diálogo de relatórios e previsões
+        
+        Args:
+            user_id (int): ID do usuário para gerar relatórios
+            parent: Widget pai do diálogo
+        """
         super().__init__(parent)
         self.user_id = user_id
         self.setWindowTitle("Relatórios e Previsões")
         self.setMinimumWidth(500)
-        self.current_df_for_report = pd.DataFrame() # Initialize
+        self.current_df_for_report = pd.DataFrame() # Inicializa
 
         layout = QVBoxLayout(self)
         date_range_layout = QFormLayout()
@@ -206,6 +339,13 @@ class ReportPredictionDialog(QDialog):
         layout.addLayout(charts_button_layout)
 
     def generate_report_and_forecast(self):
+        """
+        Gera o relatório financeiro e previsões para o período selecionado
+        
+        Valida as datas selecionadas, busca os dados do banco, calcula
+        estatísticas e previsões, e exibe o resultado na área de texto.
+        Habilita os botões de gráficos se há dados disponíveis.
+        """
         start_date_str = self.start_date_edit.date().toString("yyyy-MM-dd")
         end_date_str = self.end_date_edit.date().toString("yyyy-MM-dd")
 
@@ -227,7 +367,7 @@ class ReportPredictionDialog(QDialog):
 
         summary = generate_summary_report(self.current_df_for_report)
         
-        full_history_df = get_transactions_as_dataframe(self.user_id) # For a more stable (but still naive) forecast
+        full_history_df = get_transactions_as_dataframe(self.user_id) # Para uma previsão mais estável (mas ainda ingênua)
         forecast = generate_simple_forecast(full_history_df) 
 
         report_text = f"--- Relatório Financeiro ({format_date_for_display(start_date_str)} - {format_date_for_display(end_date_str)}) ---\n"
@@ -243,24 +383,36 @@ class ReportPredictionDialog(QDialog):
         self.bar_chart_button.setEnabled(True)
 
     def show_pie_chart(self):
+        """
+        Exibe o gráfico de pizza com distribuição de receitas vs despesas
+        
+        Gera e mostra o gráfico em uma janela modal separada.
+        Exibe mensagem informativa se não há dados suficientes.
+        """
         if not self.current_df_for_report.empty:
             fig = create_income_expense_pie_chart(self.current_df_for_report)
             if fig:
                 dialog = ChartDialog(fig, self)
                 dialog.exec()
-                # Figure is closed by ChartDialog.finished signal
+                # Figura é fechada pelo sinal ChartDialog.finished
             else:
                 QMessageBox.information(self, "Gráfico Pizza", "Não há dados suficientes para gerar o gráfico pizza.")
         else:
             QMessageBox.warning(self, "Gráfico Pizza", "Gere um relatório primeiro para obter os dados do gráfico.")
 
     def show_bar_chart(self):
+        """
+        Exibe o gráfico de barras com receitas e despesas mensais
+        
+        Gera e mostra o gráfico em uma janela modal separada.
+        Exibe mensagem informativa se não há dados suficientes.
+        """
         if not self.current_df_for_report.empty:
             fig = create_monthly_bar_chart(self.current_df_for_report) 
             if fig:
                 dialog = ChartDialog(fig, self)
                 dialog.exec()
-                # Figure is closed by ChartDialog.finished signal
+                # Figura é fechada pelo sinal ChartDialog.finished
             else:
                 QMessageBox.information(self, "Gráfico Barras", "Não há dados suficientes para gerar o gráfico de barras mensal.")
         else:

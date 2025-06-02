@@ -1,5 +1,40 @@
+# Sistema Muquirano - Dependências do Projeto
+# 
+# Este arquivo lista todas as dependências necessárias para executar
+# o sistema de controle financeiro Muquirano.
+#
+# Para instalar todas as dependências, execute:
+# pip install -r requirements.txt
+
+# Interface gráfica - PySide6 (Qt for Python)
+PySide6>=6.5.0
+
+# Análise de dados
+pandas>=1.5.0
+
+# Geração de gráficos
+matplotlib>=3.6.0
+
+# Hash seguro de senhas
 bcrypt>=4.0.0
-matplotlib>=3.0.0
-pandas>=1.0.0
-Pyside6>=6.0.0
+
+# Manipulação avançada de datas
 python-dateutil>=2.8.0
+
+# Dependências opcionais para melhor performance e funcionalidades extras
+
+# NumPy - otimização de operações numéricas (usado pelo pandas)
+numpy>=1.24.0
+
+# Pillow - suporte a imagens (usado pelo matplotlib)
+Pillow>=9.0.0
+
+# Dependências do sistema (já incluídas no Python padrão, listadas para referência)
+# sqlite3 - banco de dados (built-in)
+# datetime - manipulação de datas (built-in)
+# typing - type hints (built-in)
+# dataclasses - estruturas de dados (built-in Python 3.7+)
+# enum - enumerações (built-in)
+# uuid - geração de UUIDs (built-in)
+# sys, os - utilitários do sistema (built-in)
+# re - expressões regulares (built-in)
