@@ -238,13 +238,9 @@ Contribuições são bem-vindas! Para contribuir:
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## 📝 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
-
 ## 👨‍💻 Autor
 
-**Sistema Muquirano** - Desenvolvido com ❤️ em Python
+**Viicell** - Desenvolvido com ❤️ em Python
 
 ---
 
@@ -284,4 +280,4 @@ O sistema foi projetado para fácil extensão:
 
 ---
 
-_Documentação atualizada em 2024_
+_Documentação atualizada em 2025_
