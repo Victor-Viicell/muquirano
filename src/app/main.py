@@ -18,8 +18,8 @@ Requisitos:
     - Pandas e Matplotlib para análises
     - bcrypt para segurança de senhas
 
-Autor: Sistema Muquirano
-Data: 2024
+Autor: Viicell
+Data: 2025
 """
 
 # Esse é um programa de controle financeiro chamado "Muquirano"

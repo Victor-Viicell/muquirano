@@ -12,7 +12,7 @@ Principais componentes:
 - EditTransactionDialog: Diálogo para editar transações existentes
 - MainAppController: Controlador principal da aplicação
 
-Autor: Victor Lucas
+Autor: Viicell
 Data: 2025
 """
 

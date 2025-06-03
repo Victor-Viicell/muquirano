@@ -16,8 +16,8 @@ Tabelas do banco:
 - users: Informações de usuários e senhas hashadas
 - transactions: Transações financeiras com suporte a agrupamento
 
-Autor: Sistema Muquirano
-Data: 2024
+Autor: Viicell
+Data: 2025
 """
 
 import sqlite3

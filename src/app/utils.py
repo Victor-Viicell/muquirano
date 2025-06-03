@@ -9,8 +9,8 @@ Principais funcionalidades:
 - Conversões entre formatos de data
 - Funções auxiliares para interface gráfica
 
-Autor: Sistema Muquirano
-Data: 2024
+Autor: Viicell
+Data: 2025
 """
 
 from PySide6.QtCore import QDate

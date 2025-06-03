@@ -18,8 +18,8 @@ Componentes principais:
 - Diálogos Qt para exibição de relatórios
 - Sistema de previsões baseado em histórico
 
-Autor: Sistema Muquirano
-Data: 2024
+Autor: Viicell
+Data: 2025
 """
 
 import pandas as pd

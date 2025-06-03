@@ -14,8 +14,8 @@ Os modelos suportam funcionalidades avançadas como:
 - Transações recorrentes com frequência definida
 - Rastreamento de posição em grupos (parcela X de Y)
 
-Autor: Sistema Muquirano
-Data: 2024
+Autor: Viicell
+Data: 2025
 """
 
 from enum import Enum
