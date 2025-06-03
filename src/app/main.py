@@ -34,12 +34,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.app.ui import MainAppController
-from src.db import database # Garante que o banco seja inicializado via __init__ ou chamada explícita se necessário
 
 if __name__ == "__main__":
-    # Garante que o banco de dados seja inicializado
-    # database.initialize_db() # Isso já é chamado em database.py na importação e em MainAppController
-    
+    # O banco de dados é inicializado automaticamente pelo MainAppController
     controller = MainAppController()
     controller.start()
 

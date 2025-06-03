@@ -745,7 +745,8 @@ class AddTransactionDialog(QDialog):
         if is_recurring:
             db_is_recurring = True
             freq_text = self.recurring_frequency_combo.currentText().split(" ", 1)[1].lower()  # Remove emoji
-            db_recurrence_frequency = freq_text
+            # Mapeia texto português para frequência do banco de dados
+            db_recurrence_frequency = freq_text  # Agora será "mensal", "semanal" ou "anual"
             db_num_occurrences = self.recurring_occurrences_input.value()
         elif num_installments > 1:
             db_num_installments = num_installments

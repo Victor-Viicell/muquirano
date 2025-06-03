@@ -30,6 +30,13 @@ from .data_models import User, Transaction, TransactionType
 
 DB_NAME = "muquirano.db"
 
+# Mapeamento de frequências da UI para o banco de dados
+FREQUENCY_MAPPING = {
+    "mensal": "monthly",
+    "semanal": "weekly", 
+    "anual": "yearly"
+}
+
 def initialize_db():
     """
     Inicializa o banco de dados criando as tabelas necessárias
@@ -98,9 +105,8 @@ def add_user(name: str, password: str) -> Optional[User]:
         conn.commit()
         user_id = cursor.lastrowid
         if user_id is not None:
-            # Retorna usuário com senha em texto plano para uso imediato se necessário
-            # Para esta estrutura de aplicação, retornar a senha hashada não é útil para o objeto User
-            return User(id=user_id, name=name, password=password) # Ou considere não retornar senha alguma
+            # Retorna usuário sem senha para consistência
+            return User(id=user_id, name=name, password='')
         return None
     except sqlite3.IntegrityError: # Nome de usuário já existe
         return None
@@ -118,7 +124,7 @@ def get_user(name: str) -> Optional[User]:
         Optional[User]: Objeto User se encontrado, None caso contrário
         
     Note:
-        O campo password do objeto User retornado contém o hash da senha.
+        O campo password do objeto User retornado está vazio por segurança.
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -127,13 +133,7 @@ def get_user(name: str) -> Optional[User]:
     conn.close()
     if row:
         user_id, user_name, stored_hashed_password_bytes = row
-        # O objeto User retornado aqui não precisa que a senha seja em texto plano
-        # A verificação acontece aqui. Se bem-sucedida, a UI sabe.
-        # Estamos retornando um objeto User que ainda tem um campo password,
-        # mas para um usuário logado, seu valor não é usado diretamente para re-autenticação tipicamente.
-        # Por ora, vamos manter simples e não armazenar a senha em texto plano no objeto User após login.
-        # Precisaremos ajustar handle_login em ui.py porque ele compara user.password == password
-        return User(id=user_id, name=user_name, password=stored_hashed_password_bytes.decode('utf-8', errors='ignore')) # Armazena hash como string
+        return User(id=user_id, name=user_name, password='') # Password vazio por segurança
     return None
 
 def check_user_password(username: str, password_to_check: str) -> Optional[User]:
@@ -159,7 +159,7 @@ def check_user_password(username: str, password_to_check: str) -> Optional[User]
     if row:
         user_id, user_name, stored_hashed_password_bytes = row
         if bcrypt.checkpw(password_to_check.encode('utf-8'), stored_hashed_password_bytes):
-            return User(id=user_id, name=user_name, password='') # Não retorna hash ou senha em texto plano
+            return User(id=user_id, name=user_name, password='') # Password vazio por segurança
         else:
             return None # Senha incorreta
     return None # Usuário não encontrado
@@ -177,6 +177,68 @@ def get_all_usernames() -> List[str]:
     rows = cursor.fetchall()
     conn.close()
     return [row[0] for row in rows]
+
+def _calculate_installment_amounts(total_amount: float, num_installments: int) -> List[float]:
+    """
+    Calcula os valores das parcelas distribuindo corretamente os centavos
+    
+    Args:
+        total_amount (float): Valor total a ser parcelado
+        num_installments (int): Número de parcelas
+    
+    Returns:
+        List[float]: Lista com os valores de cada parcela
+    """
+    # Converte para centavos para evitar problemas de ponto flutuante
+    total_cents = round(total_amount * 100)
+    base_cents = total_cents // num_installments
+    remainder_cents = total_cents % num_installments
+    
+    amounts = []
+    for i in range(num_installments):
+        installment_cents = base_cents
+        if i < remainder_cents:  # Distribui o resto nas primeiras parcelas
+            installment_cents += 1
+        amounts.append(installment_cents / 100.0)
+    
+    return amounts
+
+def _calculate_next_occurrence_date(start_date: date, frequency: str, occurrence_index: int) -> date:
+    """
+    Calcula a próxima data de ocorrência tratando casos extremos
+    
+    Args:
+        start_date (date): Data inicial
+        frequency (str): Frequência ('monthly', 'weekly', 'yearly')
+        occurrence_index (int): Índice da ocorrência (0-based)
+    
+    Returns:
+        date: Próxima data de ocorrência
+        
+    Raises:
+        ValueError: Se a frequência for inválida
+    """
+    if frequency == 'monthly':
+        try:
+            return start_date + relativedelta(months=occurrence_index)
+        except ValueError:
+            # Para casos como 31 de janeiro + 1 mês = 28/29 de fevereiro
+            next_date = start_date.replace(day=1) + relativedelta(months=occurrence_index+1)
+            # Tenta usar o dia original, senão usa o último dia do mês
+            try:
+                return next_date.replace(day=start_date.day)
+            except ValueError:
+                return next_date.replace(day=1) + relativedelta(months=1, days=-1)
+    elif frequency == 'weekly':
+        return start_date + relativedelta(weeks=occurrence_index)
+    elif frequency == 'yearly':
+        try:
+            return start_date + relativedelta(years=occurrence_index)
+        except ValueError:
+            # Para 29 de fevereiro em anos não bissextos
+            return start_date.replace(day=28) + relativedelta(years=occurrence_index)
+    else:
+        raise ValueError(f"Frequência inválida: {frequency}")
 
 def add_transaction(
     user_id: int,
@@ -222,29 +284,28 @@ def add_transaction(
     
     base_start_date = datetime.strptime(date_str, "%Y-%m-%d").date() # Usa .date() para objetos date
 
-    # Determina iterações do loop: 1 para simples, N para parcelas, M para lote recorrente
-    # Se é recorrente, num_installments é implicitamente 1 para cada ocorrência gerada.
-    # Se é parcela, is_recurring_input deve ser False para a chamada inicial da UI para esse grupo.
-
     # Para transações recorrentes, geramos um lote baseado em num_occurrences_to_generate_input
     if is_recurring_input and num_occurrences_to_generate_input > 0:
+        # Mapeia frequência da UI para o banco de dados
+        if recurrence_frequency_input in FREQUENCY_MAPPING:
+            db_frequency = FREQUENCY_MAPPING[recurrence_frequency_input]
+        else:
+            print(f"Erro: Frequência de recorrência inválida: '{recurrence_frequency_input}'")
+            conn.close()
+            return []
+        
         current_recurring_group_id = str(uuid.uuid4())
         amount_per_occurrence = total_amount # Para recorrentes, total_amount é o valor para CADA ocorrência
         
         for occurrence_idx in range(num_occurrences_to_generate_input):
             occurrence_num = occurrence_idx + 1
-            occurrence_date = base_start_date
-            if recurrence_frequency_input == 'monthly':
-                occurrence_date = base_start_date + relativedelta(months=occurrence_idx)
-            elif recurrence_frequency_input == 'weekly':
-                occurrence_date = base_start_date + relativedelta(weeks=occurrence_idx)
-            elif recurrence_frequency_input == 'yearly':
-                occurrence_date = base_start_date + relativedelta(years=occurrence_idx)
-            else: # Padrão para base_start_date se frequência for desconhecida ou não aplicável para geração em lote
-                if occurrence_idx > 0: # apenas avança se não for a primeira e frequência for estranha
-                    # Potencialmente registra um aviso ou trata este caso como erro
-                    print(f"Aviso: Frequência de recorrência desconhecida '{recurrence_frequency_input}' para geração em lote de {description}")
-                    occurrence_date = base_start_date + relativedelta(months=occurrence_idx) # fallback para mensal por segurança
+            
+            try:
+                occurrence_date = _calculate_next_occurrence_date(base_start_date, db_frequency, occurrence_idx)
+            except ValueError as e:
+                print(f"Erro calculando data de ocorrência: {e}")
+                conn.close()
+                return []
             
             occurrence_date_str = occurrence_date.strftime("%Y-%m-%d")
             occurrence_description = f"{description} (Recorrente {occurrence_num}/{num_occurrences_to_generate_input})"
@@ -255,30 +316,41 @@ def add_transaction(
                     "is_recurring, recurring_group_id, recurrence_frequency, occurrence_number, total_occurrences_in_group) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (user_id, type.value, amount_per_occurrence, occurrence_date_str, occurrence_description,
-                     1, current_recurring_group_id, recurrence_frequency_input, occurrence_num, num_occurrences_to_generate_input)
+                     1, current_recurring_group_id, db_frequency, occurrence_num, num_occurrences_to_generate_input)
                 )
                 transaction_id = cursor.lastrowid
                 if transaction_id is not None:
                     created_transactions.append(Transaction(
                         id=transaction_id, user_id=user_id, type=type, amount=amount_per_occurrence, date=occurrence_date_str,
                         description=occurrence_description, is_recurring=True, recurring_group_id=current_recurring_group_id,
-                        recurrence_frequency=recurrence_frequency_input, occurrence_number=occurrence_num, total_occurrences_in_group=num_occurrences_to_generate_input
+                        recurrence_frequency=db_frequency, occurrence_number=occurrence_num, total_occurrences_in_group=num_occurrences_to_generate_input
                     ))
-                else: print(f"Erro: Falha ao obter lastrowid para transação recorrente: {occurrence_description}")
+                else: 
+                    print(f"Erro: Falha ao obter lastrowid para transação recorrente: {occurrence_description}")
+                    conn.close()
+                    return []
             except Exception as e:
                 print(f"Erro adicionando transação recorrente: {occurrence_description}: {e}")
-                conn.close(); return []
+                conn.close()
+                return []
     
     # Para transações parceladas (não podem ser simultaneamente lote-recorrentes de uma chamada UI como esta)
     elif num_installments > 1 and not is_recurring_input:
         current_installment_group_id = str(uuid.uuid4())
-        amount_per_installment = round(total_amount / num_installments, 2)
+        installment_amounts = _calculate_installment_amounts(total_amount, num_installments)
         
         for installment_idx in range(num_installments):
             installment_num = installment_idx + 1
-            installment_date = base_start_date + relativedelta(months=installment_idx)
+            try:
+                installment_date = _calculate_next_occurrence_date(base_start_date, 'monthly', installment_idx)
+            except ValueError as e:
+                print(f"Erro calculando data de parcela: {e}")
+                conn.close()
+                return []
+                
             installment_date_str = installment_date.strftime("%Y-%m-%d")
             installment_description = f"{description} ({installment_num}/{num_installments})"
+            amount_per_installment = installment_amounts[installment_idx]
 
             try:
                 cursor.execute(
@@ -295,10 +367,14 @@ def add_transaction(
                         description=installment_description, installment_group_id=current_installment_group_id,
                         installment_number=installment_num, total_installments=num_installments
                     ))
-                else: print(f"Erro: Falha ao obter lastrowid para parcela: {installment_description}")
+                else: 
+                    print(f"Erro: Falha ao obter lastrowid para parcela: {installment_description}")
+                    conn.close()
+                    return []
             except Exception as e:
                 print(f"Erro adicionando transação parcelada: {installment_description}: {e}")
-                conn.close(); return []
+                conn.close()
+                return []
 
     # Para transações simples, sem parcela, sem lote-recorrente
     else:
@@ -313,10 +389,14 @@ def add_transaction(
                     id=transaction_id, user_id=user_id, type=type, amount=total_amount, date=date_str,
                     description=description
                 ))
-            else: print(f"Erro: Falha ao obter lastrowid para transação simples: {description}")
+            else: 
+                print(f"Erro: Falha ao obter lastrowid para transação simples: {description}")
+                conn.close()
+                return []
         except Exception as e:
             print(f"Erro adicionando transação simples: {description}: {e}")
-            conn.close(); return []
+            conn.close()
+            return []
 
     conn.commit()
     conn.close()
@@ -455,15 +535,21 @@ def delete_transaction_group(group_id: str, group_field_name: str) -> tuple[bool
     Returns:
         A tuple (success: bool, num_deleted: int).
     """
-    if group_field_name not in ["installment_group_id", "recurring_group_id"]:
+    # Validação de segurança para prevenir SQL injection
+    allowed_fields = {"installment_group_id", "recurring_group_id"}
+    if group_field_name not in allowed_fields:
         print(f"Error: Invalid group_field_name: {group_field_name}")
         return False, 0
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
-        # Ensure group_field_name is safe for direct use in SQL (already checked against whitelist)
-        query = f"DELETE FROM transactions WHERE {group_field_name} = ?"
+        # Usa método mais seguro para construção da query
+        if group_field_name == "installment_group_id":
+            query = "DELETE FROM transactions WHERE installment_group_id = ?"
+        else:  # recurring_group_id
+            query = "DELETE FROM transactions WHERE recurring_group_id = ?"
+            
         cursor.execute(query, (group_id,))
         conn.commit()
         num_deleted = cursor.rowcount
@@ -478,7 +564,9 @@ def update_group_base_description(group_id: str, group_field_name: str, new_base
     """Updates the base description for all transactions in a group.
     The (X/Y) part of the description is preserved and reconstructed.
     """
-    if group_field_name not in ["installment_group_id", "recurring_group_id"]:
+    # Validação de segurança
+    allowed_fields = {"installment_group_id", "recurring_group_id"}
+    if group_field_name not in allowed_fields:
         print(f"Error: Invalid group_field_name for description update: {group_field_name}")
         return False, 0
 
@@ -486,12 +574,16 @@ def update_group_base_description(group_id: str, group_field_name: str, new_base
     cursor = conn.cursor()
     updated_count = 0
     try:
-        # First, fetch all transactions in the group to get their individual numbers
-        id_field = "id"
-        num_field = "installment_number" if group_field_name == "installment_group_id" else "occurrence_number"
-        total_field = "total_installments" if group_field_name == "installment_group_id" else "total_occurrences_in_group"
+        # Construção segura da query
+        if group_field_name == "installment_group_id":
+            query_select = "SELECT id, installment_number, total_installments FROM transactions WHERE installment_group_id = ?"
+            num_field = "installment_number"
+            total_field = "total_installments"
+        else:  # recurring_group_id
+            query_select = "SELECT id, occurrence_number, total_occurrences_in_group FROM transactions WHERE recurring_group_id = ?"
+            num_field = "occurrence_number"
+            total_field = "total_occurrences_in_group"
         
-        query_select = f"SELECT {id_field}, {num_field}, {total_field} FROM transactions WHERE {group_field_name} = ?"
         cursor.execute(query_select, (group_id,))
         transactions_in_group = cursor.fetchall()
 
